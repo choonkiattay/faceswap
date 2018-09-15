@@ -5,11 +5,11 @@
 import os
 from datetime import datetime
 
-from cv2 import imread, imwrite, invertAffineTransform, transform
-from numpy import array, int32
+import cv2
+import numpy as np
 
 from lib import Serializer
-from lib.utils import _image_extensions, rotate_image_by_angle
+from lib.utils import _image_extensions, rotate_landmarks
 from plugins.PluginLoader import PluginLoader
 
 
@@ -182,6 +182,45 @@ class AlignmentData():
         """ Replace an alignment for given frame and index """
         self.alignments[frame][idx] = alignment
 
+    def get_rotated(self):
+        """ Return list of keys for alignments containing
+            rotated frames """
+        keys = list()
+        for key, val in self.alignments.items():
+            if any(alignment.get("r", None) for alignment in val):
+                keys.append(key)
+        return keys
+
+    def rotate_existing_landmarks(self, frame, dimensions):
+        """ Backwards compatability fix. Rotates the landmarks to
+            their correct position and sets r to 0 """
+        for alignment in self.alignments.get(frame, list()):
+            angle = alignment.get("r", 0)
+            if not angle:
+                return
+            rotation_matrix = self.get_original_rotation_matrix(dimensions,
+                                                                angle)
+            face = DetectedFace()
+            face.alignment_to_face(None, alignment)
+            face = rotate_landmarks(face, rotation_matrix)
+            alignment = face.face_to_alignment(alignment)
+
+    @staticmethod
+    def get_original_rotation_matrix(dimensions, angle):
+        """ Calculate original rotation matrix and invert """
+        height, width = dimensions
+        center = (width/2, height/2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, -1.0*angle, 1.)
+
+        abs_cos = abs(rotation_matrix[0, 0])
+        abs_sin = abs(rotation_matrix[0, 1])
+        rotated_width = int(height*abs_sin + width*abs_cos)
+        rotated_height = int(height*abs_cos + width*abs_sin)
+        rotation_matrix[0, 2] += rotated_width/2 - center[0]
+        rotation_matrix[1, 2] += rotated_height/2 - center[1]
+
+        return rotation_matrix
+
 
 class MediaLoader():
     """ Class to load filenames from folder """
@@ -236,14 +275,14 @@ class MediaLoader():
     def load_image(self, filename):
         """ Load an image """
         src = os.path.join(self.folder, filename)
-        image = imread(src)
+        image = cv2.imread(src)
         return image
 
     @staticmethod
     def save_image(output_folder, filename, image):
         """ Save an image """
         output_file = os.path.join(output_folder, filename)
-        imwrite(output_file, image)
+        cv2.imwrite(output_file, image)
 
 
 class Faces(MediaLoader):
@@ -311,14 +350,31 @@ class Frames(MediaLoader):
 
 class DetectedFace():
     """ Detected face and landmark information """
-    def __init__(self, image, r, x, w, y, h, landmarksXY):
+    def __init__(self):
+        self.image = None
+        self.x = None
+        self.w = None
+        self.y = None
+        self.h = None
+        self.landmarksXY = None
+
+    def alignment_to_face(self, image, alignment):
+        """ Convert a face alignment to detected face object """
         self.image = image
-        self.r = r
-        self.x = x
-        self.w = w
-        self.y = y
-        self.h = h
-        self.landmarksXY = landmarksXY
+        self.x = alignment["x"]
+        self.w = alignment["w"]
+        self.y = alignment["y"]
+        self.h = alignment["h"]
+        self.landmarksXY = alignment["landmarksXY"]
+
+    def face_to_alignment(self, alignment):
+        """ Convert a face alignment to detected face object """
+        alignment["x"] = self.x
+        alignment["w"] = self.w
+        alignment["y"] = self.y
+        alignment["h"] = self.h
+        alignment["landmarksXY"] = self.landmarksXY
+        return alignment
 
     def landmarks_as_xy(self):
         """ Landmarks as XY """
@@ -359,29 +415,21 @@ class ExtractedFaces():
 
     def extract_one_face(self, alignment, image):
         """ Extract one face from image """
-        face = DetectedFace(image,
-                            alignment["r"],
-                            alignment["x"],
-                            alignment["w"],
-                            alignment["y"],
-                            alignment["h"],
-                            alignment["landmarksXY"])
-
-        if face.r:
-            image = rotate_image_by_angle(image, face.r)
+        face = DetectedFace()
+        face.alignment_to_face(image, alignment)
         return self.extractor.extract(image, face, self.size, self.align_eyes)
 
     def original_roi(self, matrix):
         """ Return the original ROI of an extracted face """
-        points = array([[0, 0], [0, self.size - 1],
-                        [self.size - 1, self.size - 1],
-                        [self.size - 1, 0]], int32)
+        points = np.array([[0, 0], [0, self.size - 1],
+                           [self.size - 1, self.size - 1],
+                           [self.size - 1, 0]], np.int32)
         points = points.reshape((-1, 1, 2))
 
         mat = matrix * (self.size - 2 * self.padding)
         mat[:, 2] += self.padding
-        mat = invertAffineTransform(mat)
-        return [transform(points, mat)]
+        mat = cv2.invertAffineTransform(mat)
+        return [cv2.transform(points, mat)]
 
     def get_faces_for_frame(self, frame, update=False):
         """ Return the faces for the selected frame """

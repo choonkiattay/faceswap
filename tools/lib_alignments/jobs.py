@@ -196,10 +196,25 @@ class Draw():
         self.verbose = arguments.verbose
         self.alignments = alignments
         self.frames = Frames(arguments.frames_dir, self.verbose)
+        self.fix_rotation()
         self.output_folder = self.set_output()
         self.extracted_faces = ExtractedFaces(self.frames,
                                               self.alignments,
                                               align_eyes=arguments.align_eyes)
+
+    def fix_rotation(self):
+        """ Backwards compatibility fix to to transform landmarks from rotated
+            frames """
+        rotated = self.alignments.get_rotated()
+        if not rotated:
+            return
+        print("Legacy rotated frames found. Rotating landmarks")
+        for rotate_item in tqdm(rotated,
+                                desc="Rotating Landmarks"):
+            if rotate_item not in self.frames.items.keys():
+                continue
+            dims = self.frames.load_image(rotate_item).shape[:2]
+            self.alignments.rotate_existing_landmarks(rotate_item, dims)
 
     def set_output(self):
         """ Set the output folder path """
@@ -375,8 +390,7 @@ class Reformat():
             alignments[sourcefile] = list()
 
         left, top, right, bottom = dfl_alignments["source_rect"]
-        alignment = {"r": 0,
-                     "x": left,
+        alignment = {"x": left,
                      "w": right - left,
                      "y": top,
                      "h": bottom - top,

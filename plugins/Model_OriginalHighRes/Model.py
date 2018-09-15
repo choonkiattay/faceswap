@@ -51,14 +51,16 @@ def inst_norm():
     return InstanceNormalization()
 
 
-# might increase overall quality at cost of training speed
-USE_DSSIM = True
 
-# might increase upscaling quality at cost of video memory
-USE_SUBPIXEL = True
 
 # autoencoder type
-ENCODER = EncoderType.STANDARD
+ENCODER = EncoderType.ORIGINAL
+
+# might increase overall quality at cost of training speed
+USE_DSSIM = False
+
+# might increase upscaling quality at cost of video memory
+USE_SUBPIXEL = False
 
 
 hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
@@ -315,8 +317,10 @@ class Model():
         
         x = self.upscale(512)(inpt)
         x = self.res_block(x, 512)
+        
         x = self.upscale(256)(x)
         x = self.res_block(x, 256)
+        
         x = self.upscale(128)(x)
         x = self.res_block(x, 128)
         

@@ -52,13 +52,13 @@ def inst_norm():
 
 
 # might increase overall quality at cost of training speed
-USE_DSSIM = False
+USE_DSSIM = True
 
 # might increase upscaling quality at cost of video memory
-USE_SUBPIXEL = False
+USE_SUBPIXEL = True
 
 # autoencoder type
-ENCODER = EncoderType.ORIGINAL
+ENCODER = EncoderType.STANDARD
 
 
 hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
@@ -68,7 +68,7 @@ hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
 
 class Model():
     
-    ENCODER_DIM = 1024 # dense layer size        
+    ENCODER_DIM = 512 # dense layer size        
     IMAGE_SHAPE = 128, 128 # image shape
     
     assert [n for n in IMAGE_SHAPE if n>=16]
@@ -143,7 +143,19 @@ class Model():
         try:
             with open(state_dir, 'rb') as fp:
                 state = ser.unmarshal(fp.read().decode('utf-8'))
-                self._epoch_no = state['epoch_no']
+                try:
+                    self._epoch_no = state[self.encoder_type]['epoch_no']
+                except KeyError:                    
+                    if 'epoch_no' in state:                        
+                        if not EncoderType.ORIGINAL.value in state:
+                            state[EncoderType.ORIGINAL.value] = {}                        
+                        state[EncoderType.ORIGINAL.value]['epoch_no'] = state['epoch_no']
+                        
+                    if not self.encoder_type in state:
+                        state[self.encoder_type] = { 'epoch_no' : 0 }
+                        
+                    self._epoch_no = state[self.encoder_type]['epoch_no'] 
+                    
         except IOError as e:
             print('Error loading training info:', e.strerror)
             self._epoch_no = 0
@@ -179,6 +191,16 @@ class Model():
             x = LeakyReLU(0.1)(x)            
             return x
         return block   
+    
+    @staticmethod
+    def res_block(input_tensor, f):
+        x = input_tensor
+        x = Conv2D(f, kernel_size=3, kernel_initializer=_kern_init, use_bias=False, padding="same")(x)
+        x = LeakyReLU(alpha=0.2)(x)
+        x = Conv2D(f, kernel_size=3, kernel_initializer=_kern_init, use_bias=False, padding="same")(x)
+        x = add([x, input_tensor])
+        x = LeakyReLU(alpha=0.2)(x)
+        return x        
     
     @staticmethod
     def conv_sep(filters, kernel_size=5, strides=2, use_instance_norm=False, **kwargs):
@@ -292,8 +314,11 @@ class Model():
         inpt = Input(shape=(decoder_shape, decoder_shape, 512))
         
         x = self.upscale(512)(inpt)
+        x = self.res_block(x, 512)
         x = self.upscale(256)(x)
+        x = self.res_block(x, 256)
         x = self.upscale(128)(x)
+        x = self.res_block(x, 128)
         
         x = Conv2D(3, kernel_size=5, padding='same', activation='sigmoid')(x)
         
@@ -347,11 +372,20 @@ class Model():
         
         try:
             with open(state_dir, 'wb') as fp:
-                state_json = ser.marshal({
-                    'epoch_no' : self._epoch_no,
-                    'encoder_type' : self.encoder_type
-                     })
+                
+                state = { 
+                            self.encoder_type: {
+                                'epoch_no' : self._epoch_no,
+                                'USE_DSSIM' : USE_DSSIM,
+                                'USE_SUBPIXEL' : USE_SUBPIXEL,
+                                'ENCODER_DIM' :  self.ENCODER_DIM,      
+                                'IMAGE_SHAPE' : self.IMAGE_SHAPE,
+                            } 
+                        }
+                
+                state_json = ser.marshal(state)
                 fp.write(state_json.encode('utf-8'))
+                
         except IOError as e:
             print(e.strerror)                   
         

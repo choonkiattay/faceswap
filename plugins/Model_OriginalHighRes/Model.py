@@ -52,13 +52,13 @@ def inst_norm():
 
 
 # might increase overall quality at cost of training speed
-USE_DSSIM = True
+USE_DSSIM = False
 
 # might increase upscaling quality at cost of video memory
-USE_SUBPIXEL = True
+USE_SUBPIXEL = False
 
 # autoencoder type
-ENCODER = EncoderType.STANDARD
+ENCODER = EncoderType.ORIGINAL
 
 
 hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
@@ -68,7 +68,7 @@ hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
 
 class Model():
     
-    ENCODER_DIM = 512 # dense layer size        
+    ENCODER_DIM = 1024 # dense layer size        
     IMAGE_SHAPE = 128, 128 # image shape
     
     assert [n for n in IMAGE_SHAPE if n>=16]

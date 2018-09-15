@@ -52,13 +52,13 @@ def inst_norm():
 
 
 # might increase overall quality at cost of training speed
-USE_DSSIM = False
+USE_DSSIM = True
 
 # might increase upscaling quality at cost of video memory
-USE_SUBPIXEL = False
+USE_SUBPIXEL = True
 
 # autoencoder type
-ENCODER = EncoderType.ORIGINAL
+ENCODER = EncoderType.STANDARD
 
 
 hdf = {'encoderH5': 'encoder_{version_str}{ENCODER.value}.h5'.format(**vars()),
